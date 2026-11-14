@@ -7,11 +7,13 @@
 	import { healthLabel, type Mark } from '../lib/marks.ts';
 
 	const problemList = $derived(
-		problems({ snapshot: app.github, repos: app.repos, pulls: app.pulls, me: app.me, monitor: app.monitor, monitorError: app.monitorError })
+		problems({ snapshot: app.github, repos: app.repos, pulls: app.pulls, me: app.me, monitors: app.monitors })
 	);
 	const taskList = $derived(tasks({ snapshot: app.github, pulls: app.pulls, issues: app.issues, me: app.me }));
 	const failingCi = $derived(app.repos.filter((r) => !r.isArchived && (r.ci.state === 'FAILURE' || r.ci.state === 'ERROR')).length);
-	const projectsDown = $derived(app.monitor?.projects.filter((p) => p.health === 'critical').length ?? 0);
+	const projects = $derived(app.monitorProjects);
+	const projectsDown = $derived(projects.filter((p) => p.health === 'critical').length);
+	const monitorLink = $derived(app.monitors.length === 1 ? app.monitors[0].url : '#/settings');
 
 	const reasonMark: Record<Task['reason'], Mark> = { review: 'info', changes: 'warning', ready: 'good', assigned: 'info', failing: 'serious' };
 
@@ -52,8 +54,8 @@
 			<a class="card tile" href="#/pulls"><span class="n">{app.pulls.length}</span><span class="muted">Open pull requests</span></a>
 			<a class="card tile" href="#/issues"><span class="n">{app.issues.length}</span><span class="muted">Open issues</span></a>
 			<a class="card tile" href="#/repos"><span class="n">{failingCi}</span><span class="muted">Failing builds</span></a>
-			{#if app.monitor}
-				<a class="card tile" href={app.monitor.monitor} target="_blank" rel="noreferrer">
+			{#if projects.length}
+				<a class="card tile" href={monitorLink} target={monitorLink.startsWith('#') ? undefined : '_blank'} rel="noreferrer">
 					<span class="n">{projectsDown}</span><span class="muted">Projects down</span>
 				</a>
 			{/if}
@@ -76,7 +78,7 @@
 						{/each}
 					</ul>
 				{:else}
-					<div class="empty">Nothing broken. Builds are green{app.monitor ? ' and everything is up' : ''}.</div>
+					<div class="empty">Nothing broken. Builds are green{projects.length ? ' and everything is up' : ''}.</div>
 				{/if}
 			</section>
 
@@ -102,11 +104,13 @@
 		</div>
 	{/if}
 
-	{#if app.monitor}
+	{#if projects.length}
 		<section class="card">
 			<div class="card-head">
 				<h2>Projects</h2>
-				<a class="muted small plain" href={app.monitor.monitor} target="_blank" rel="noreferrer">From Stillwater Monitor ↗</a>
+				<span class="muted small">
+					From {#each app.monitors as m, i (m.url)}{i > 0 ? ', ' : ''}<a class="plain" href={m.url} target="_blank" rel="noreferrer">{new URL(m.url).host}</a>{/each}
+				</span>
 			</div>
 			<div class="scroll-x">
 				<table class="list">
@@ -114,7 +118,7 @@
 						<tr><th>Project</th><th>Status</th><th class="num hide-sm">Checks</th><th class="num hide-sm">Errors</th><th class="num">PRs</th><th class="num">Issues</th></tr>
 					</thead>
 					<tbody>
-						{#each app.monitor.projects as p (p.id)}
+						{#each projects as p (p.href)}
 							{@const c = projectCounts(p.repos)}
 							<tr>
 								<td><a href={p.href} target="_blank" rel="noreferrer">{p.name}</a></td>

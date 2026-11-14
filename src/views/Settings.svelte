@@ -45,10 +45,12 @@
 	}
 
 	// ---- Stillwater Monitor
-	let swUrl = $state(app.data.monitor?.url ?? '');
+	let swUrl = $state('');
 	let swToken = $state('');
 	let connecting = $state(false);
 	let swError = $state<string | null>(null);
+
+	const monitorState = (url: string) => app.monitors.find((m) => m.url === url);
 
 	async function connect(e: SubmitEvent) {
 		e.preventDefault();
@@ -56,10 +58,10 @@
 		swError = null;
 		try {
 			const conn = { url: normaliseUrl(swUrl), token: swToken.trim() };
+			if (app.data.monitors.some((m) => m.url === conn.url)) throw new Error('Already connected. Disconnect it first to change its token.');
 			await fetchOverview(conn);
-			await app.save({ ...app.data, monitor: conn });
-			swUrl = conn.url;
-			swToken = '';
+			await app.save({ ...app.data, monitors: [...app.data.monitors, conn] });
+			swUrl = swToken = '';
 			app.syncMonitor();
 		} catch (err) {
 			swError = err instanceof Error ? err.message : String(err);
@@ -68,8 +70,8 @@
 		}
 	}
 
-	async function disconnect() {
-		await app.save({ ...app.data, monitor: null });
+	async function disconnect(url: string) {
+		await app.save({ ...app.data, monitors: app.data.monitors.filter((m) => m.url !== url) });
 		app.syncMonitor();
 	}
 
@@ -189,37 +191,48 @@
 	<section class="card">
 		<div class="card-head">
 			<h2>Stillwater Monitor <span class="muted small">optional</span></h2>
-			{#if app.data.monitor}
-				{#if app.monitorError}<Badge size="sm" mark="serious" label="Can't reach it" />
-				{:else if app.monitor}<Badge size="sm" mark="good" label="Connected · {timeAgo(app.monitor.generatedAt, app.now)}" />{/if}
-			{/if}
 		</div>
 		<div class="card-body stack">
 			<p class="muted">
 				If you run <a href="https://github.com/lull-software/stillwater-monitor" target="_blank" rel="noreferrer">Stillwater Monitor</a> (self-hosted
-				uptime and error monitoring on Cloudflare), connect it to see outages and errors next to your PRs. Make a read-only token in its
-				Settings › API tokens, and add <code>{location.origin}</code> to <code>ALLOWED_ORIGINS</code> in its <code>wrangler.jsonc</code>.
+				uptime and error monitoring on Cloudflare), connect it to see outages and errors next to your PRs. Connect as many as you run. For
+				each, make a read-only token in its Settings › API tokens, and add <code>{location.origin}</code> to <code>ALLOWED_ORIGINS</code> in its
+				<code>wrangler.jsonc</code>.
 			</p>
-			{#if app.data.monitor}
-				<div class="row wrap">
-					<span>Connected to <a href={app.data.monitor.url} target="_blank" rel="noreferrer">{app.data.monitor.url}</a></span>
-					<button class="danger" onclick={disconnect}>Disconnect</button>
+			{#if app.data.monitors.length}
+				<div class="scroll-x">
+					<table class="list">
+						<thead><tr><th>Monitor</th><th>Status</th><th class="num hide-sm">Projects</th><th></th></tr></thead>
+						<tbody>
+							{#each app.data.monitors as m (m.url)}
+								{@const st = monitorState(m.url)}
+								<tr>
+									<td><a href={m.url} target="_blank" rel="noreferrer">{new URL(m.url).host}</a></td>
+									<td>
+										{#if st?.error}<Badge size="sm" mark="serious" label="Can't reach it" /><div class="muted small">{st.error}</div>
+										{:else if st?.overview}<Badge size="sm" mark="good" label="Connected · {timeAgo(st.overview.generatedAt, app.now)}" />
+										{:else}<Badge size="sm" mark="unknown" label="Not read yet" />{/if}
+									</td>
+									<td class="num hide-sm">{st?.overview?.projects.length ?? '—'}</td>
+									<td class="right"><button class="danger" onclick={() => disconnect(m.url)}>Disconnect</button></td>
+								</tr>
+							{/each}
+						</tbody>
+					</table>
 				</div>
-				{#if app.monitorError}<p class="error-text small">{app.monitorError}</p>{/if}
-			{:else}
-				<form class="fields" onsubmit={connect}>
-					<label>
-						<span>Stillwater Monitor address</span>
-						<input bind:value={swUrl} placeholder="https://monitor.example.com" required />
-					</label>
-					<label>
-						<span>API token</span>
-						<input type="password" bind:value={swToken} placeholder="swm_…" autocomplete="off" spellcheck="false" class="mono" required />
-					</label>
-					<div class="row"><button class="primary" disabled={connecting}>{connecting ? 'Connecting…' : 'Connect'}</button></div>
-					{#if swError}<p class="error-text small" role="alert">{swError}</p>{/if}
-				</form>
 			{/if}
+			<form class="fields" onsubmit={connect}>
+				<label>
+					<span>{app.data.monitors.length ? 'Add another monitor' : 'Stillwater Monitor address'}</span>
+					<input bind:value={swUrl} placeholder="https://monitor.example.com" required />
+				</label>
+				<label>
+					<span>API token</span>
+					<input type="password" bind:value={swToken} placeholder="swm_…" autocomplete="off" spellcheck="false" class="mono" required />
+				</label>
+				<div class="row"><button class="primary" disabled={connecting}>{connecting ? 'Connecting…' : 'Connect'}</button></div>
+				{#if swError}<p class="error-text small" role="alert">{swError}</p>{/if}
+			</form>
 		</div>
 	</section>
 
@@ -270,7 +283,7 @@
 			<ul class="facts muted">
 				<li>Your tokens and settings: in this browser's storage, encrypted with AES-256-GCM. The key comes from your passphrase (PBKDF2, 600,000 rounds) and is kept in memory only while unlocked.</li>
 				<li>Your GitHub tokens are sent to <code>api.github.com</code> and nowhere else. The page's security policy blocks any other destination, so the browser enforces this, not only the code.</li>
-				<li>The Stillwater Monitor token is sent only to the Stillwater Monitor address you entered.</li>
+				<li>Each Stillwater Monitor token is sent only to the monitor address you entered it with.</li>
 				<li>Stillwater has no server, no account, no analytics and no cookies.</li>
 			</ul>
 		</div>

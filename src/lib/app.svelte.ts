@@ -1,5 +1,8 @@
 import { fetchSnapshot, inScope, type Snapshot } from './github.ts';
 import { fetchOverview, type MonitorOverview } from './monitor.ts';
+
+/** One connected Stillwater Monitor: its last overview, or why it couldn't be read. */
+export type MonitorState = { url: string; overview: MonitorOverview | null; error: string | null };
 import * as vault from './vault.ts';
 import type { VaultData } from './vault.ts';
 
@@ -25,8 +28,7 @@ class App {
 	route = $state<Route>(routeFromHash());
 	data = $state<VaultData>(vault.emptyData());
 	github = $state<Snapshot | null>(null);
-	monitor = $state<MonitorOverview | null>(null);
-	monitorError = $state<string | null>(null);
+	monitors = $state<MonitorState[]>([]);
 	syncing = $state(false);
 	syncError = $state<string | null>(null);
 	now = $state(Date.now());
@@ -67,9 +69,14 @@ class App {
 		return (this.github?.issues ?? []).filter((i) => names.has(i.repo));
 	}
 
+	/** Every project from every connected monitor. */
+	get monitorProjects() {
+		return this.monitors.flatMap((m) => m.overview?.projects ?? []);
+	}
+
 	/** Stillwater Monitor project for a repo, when connected. */
 	projectFor(repo: string) {
-		return this.monitor?.projects.find((p) => p.repos.some((r) => r.toLowerCase() === repo.toLowerCase())) ?? null;
+		return this.monitorProjects.find((p) => p.repos.some((r) => r.toLowerCase() === repo.toLowerCase())) ?? null;
 	}
 
 	async create(passphrase: string) {
@@ -91,8 +98,7 @@ class App {
 		this.#timers = [];
 		this.data = vault.emptyData();
 		this.github = null;
-		this.monitor = null;
-		this.monitorError = null;
+		this.monitors = [];
 		this.syncError = null;
 		if (this.phase === 'unlocked') this.phase = 'locked';
 	}
@@ -101,7 +107,7 @@ class App {
 		this.#key = key;
 		this.data = data;
 		this.github = cache?.github ?? null;
-		this.monitor = cache?.monitor ?? null;
+		this.monitors = data.monitors.map((m) => ({ url: m.url, overview: cache?.monitors?.[m.url] ?? null, error: null }));
 		this.phase = 'unlocked';
 		this.#idleSince = Date.now();
 		this.sync();
@@ -131,7 +137,7 @@ class App {
 
 	async #saveCache() {
 		if (!this.#key) return;
-		await vault.saveCache(this.#key, { github: $state.snapshot(this.github), monitor: $state.snapshot(this.monitor) } as vault.Cache);
+		await vault.saveCache(this.#key, { github: $state.snapshot(this.github), monitors: Object.fromEntries(this.monitors.flatMap((m) => (m.overview ? [[m.url, $state.snapshot(m.overview)]] : []))) } as vault.Cache);
 	}
 
 	async sync() {
@@ -159,23 +165,20 @@ class App {
 		}
 	}
 
+	/** Reads every connected monitor at once. One that fails keeps its last overview. */
 	async syncMonitor() {
 		if (!this.#key) return;
-		const conn = this.data.monitor;
-		if (!conn) {
-			this.monitor = null;
-			this.monitorError = null;
-			return;
-		}
-		try {
-			const overview = await fetchOverview(conn);
-			if (!this.#key) return;
-			this.monitor = overview;
-			this.monitorError = null;
-			await this.#saveCache();
-		} catch (err) {
-			this.monitorError = err instanceof Error ? err.message : String(err);
-		}
+		const conns = $state.snapshot(this.data.monitors);
+		const previous = new Map(this.monitors.map((m) => [m.url, m.overview]));
+		const results = await Promise.allSettled(conns.map((c) => fetchOverview(c)));
+		if (!this.#key) return; // locked while fetching
+		this.monitors = conns.map((c, i) => {
+			const r = results[i];
+			return r.status === 'fulfilled'
+				? { url: c.url, overview: r.value, error: null }
+				: { url: c.url, overview: previous.get(c.url) ?? null, error: r.reason instanceof Error ? r.reason.message : String(r.reason) };
+		});
+		await this.#saveCache();
 	}
 
 	forget() {

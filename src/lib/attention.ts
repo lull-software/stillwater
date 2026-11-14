@@ -1,5 +1,5 @@
 import type { Issue, Pull, Repo, Snapshot } from './github.ts';
-import type { MonitorOverview } from './monitor.ts';
+import type { MonitorState } from './app.svelte.ts';
 
 /**
  * The two lists on the overview.
@@ -43,15 +43,14 @@ export function problems(input: {
 	repos: Repo[];
 	pulls: Pull[];
 	me: string | null;
-	monitor: MonitorOverview | null;
-	monitorError: string | null;
+	monitors: MonitorState[];
 }): Problem[] {
 	const out: Problem[] = [];
 
-	for (const item of input.monitor?.attention ?? []) {
+	for (const item of input.monitors.flatMap((m) => m.overview?.attention ?? [])) {
 		// Stillwater reads CI and Dependabot from GitHub itself, for every repo.
 		if (item.kind === 'ci' || item.kind === 'dependabot') continue;
-		out.push({ key: `sw:${item.kind}:${item.title}`, severity: item.health, title: item.title, detail: item.detail, href: item.href, since: item.since, source: 'Monitor' });
+		out.push({ key: `sw:${item.href}:${item.kind}:${item.title}`, severity: item.health, title: item.title, detail: item.detail, href: item.href, since: item.since, source: 'Monitor' });
 	}
 
 	for (const r of input.repos) {
@@ -74,8 +73,8 @@ export function problems(input: {
 	for (const t of input.snapshot?.tokens ?? []) {
 		if (!t.ok) out.push({ key: `tok:${t.id}`, severity: 'warning', title: `GitHub token "${t.label}" isn't working`, detail: t.error, href: '#/settings', source: 'Stillwater' });
 	}
-	if (input.monitorError) {
-		out.push({ key: 'sw:error', severity: 'warning', title: "Can't reach Stillwater Monitor", detail: input.monitorError, href: '#/settings', source: 'Stillwater' });
+	for (const m of input.monitors) {
+		if (m.error) out.push({ key: `sw:error:${m.url}`, severity: 'warning', title: `Can't reach ${new URL(m.url).host}`, detail: m.error, href: '#/settings', source: 'Stillwater' });
 	}
 
 	return out.sort((a, b) => order[a.severity] - order[b.severity] || (b.since ?? 0) - (a.since ?? 0));

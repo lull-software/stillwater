@@ -145,8 +145,10 @@ ever sends the Stillwater Monitor token to the one address you enter in Settings
    bypass rule you made for `/api/heartbeat/*`. A page on another address
    can't carry your Access sign-in; Stillwater Monitor checks the token itself.
 3. In Stillwater Monitor, open **Settings › API tokens** and make a token.
-4. In Stillwater, open **Settings › Stillwater Monitor**, enter Stillwater Monitor's address and
-   the token, and press **Connect**.
+4. In Stillwater, open **Settings › Stillwater Monitor**, enter the monitor's
+   address and the token, and press **Connect**. Running more than one
+   monitor, say one per organisation? Connect each; their projects and
+   problems are merged.
 
 ## Another browser, or a new laptop
 

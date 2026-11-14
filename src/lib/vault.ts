@@ -24,11 +24,13 @@ export type Prefs = {
 
 export type VaultData = {
 	github: GithubToken[];
-	monitor: MonitorConnection | null;
+	/** Stillwater Monitor deployments, each with its own read-only token. */
+	monitors: MonitorConnection[];
 	prefs: Prefs;
 };
 
-export type Cache = { github: Snapshot | null; monitor: MonitorOverview | null };
+/** Monitor overviews are keyed by the monitor's address. */
+export type Cache = { github: Snapshot | null; monitors: Record<string, MonitorOverview> };
 
 type StoredVault = { kind: 'stillwater-vault'; v: 1; kdf: KdfParams; data: Sealed };
 
@@ -37,7 +39,7 @@ const CACHE_KEY = 'stillwater.cache';
 
 export const defaultPrefs: Prefs = { includeForks: false, includeArchived: false, hidden: [], autoLockMinutes: 30 };
 
-export const emptyData = (): VaultData => ({ github: [], monitor: null, prefs: { ...defaultPrefs } });
+export const emptyData = (): VaultData => ({ github: [], monitors: [], prefs: { ...defaultPrefs } });
 
 function read(): StoredVault | null {
 	const raw = localStorage.getItem(VAULT_KEY);
@@ -85,7 +87,7 @@ export async function unlockVault(passphrase: string): Promise<{ key: CryptoKey;
 	const key = await deriveKey(passphrase, stored.kdf);
 	try {
 		const data = await open<VaultData>(key, stored.data);
-		return { key, data: { ...emptyData(), ...data, prefs: { ...defaultPrefs, ...data.prefs } } };
+		return { key, data: { ...emptyData(), ...data, monitors: data.monitors ?? [], prefs: { ...defaultPrefs, ...data.prefs } } };
 	} catch {
 		return null;
 	}
